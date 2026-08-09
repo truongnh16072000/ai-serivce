@@ -35,6 +35,32 @@ Success response:
 }
 ```
 
+### Streaming response
+
+Use the SSE endpoint to receive assistant text incrementally:
+
+```bash
+curl --no-buffer --fail-with-body \
+  --request POST http://localhost:8080/api/v1/chat/stream \
+  --header 'Accept: text/event-stream' \
+  --header 'Content-Type: application/json' \
+  --data '{"conversationId":"abc123","message":"Explain server-sent events."}'
+```
+
+The stream emits `started`, one or more `delta`, and `completed` events. If execution fails after
+the stream has opened, it emits a terminal `error` event instead of changing the HTTP status.
+
+```text
+event:started
+data:{"conversationId":"abc123"}
+
+event:delta
+data:{"text":"Server-sent"}
+
+event:completed
+data:{"conversationId":"abc123","answer":"Server-sent events ..."}
+```
+
 Validation and execution failures use `application/problem+json`. Capacity errors return `429`,
 Codex failures return `502`, and execution timeouts return `504`.
 

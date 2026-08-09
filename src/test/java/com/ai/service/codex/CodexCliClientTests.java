@@ -70,7 +70,10 @@ class CodexCliClientTests {
     private CodexCliClient client(Path executable, int maxOutputBytes) {
         CodexProperties properties = new CodexProperties(
                 executable.toString(), tempDirectory.resolve("workspaces"), Duration.ofSeconds(5), 2, maxOutputBytes);
-        return new CodexCliClient(properties, new CodexEventParser(new ObjectMapper()));
+        return new CodexCliClient(
+                properties,
+                new CodexEventParser(new ObjectMapper()),
+                new CodexCapacity(properties));
     }
 
     private Path script(String content) throws IOException {

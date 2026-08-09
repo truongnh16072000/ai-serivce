@@ -16,7 +16,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
@@ -31,21 +30,19 @@ public class CodexCliClient implements CodexClient {
 
     private final CodexProperties properties;
     private final CodexEventParser eventParser;
-    private final Semaphore concurrencyLimit;
+    private final CodexCapacity capacity;
     private final ExecutorService streamExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public CodexCliClient(CodexProperties properties, CodexEventParser eventParser) {
+    public CodexCliClient(CodexProperties properties, CodexEventParser eventParser, CodexCapacity capacity) {
         this.properties = properties;
         this.eventParser = eventParser;
-        this.concurrencyLimit = new Semaphore(properties.maxConcurrentRequests(), true);
+        this.capacity = capacity;
         createWorkspaceRoot();
     }
 
     @Override
     public String ask(String prompt) {
-        if (!concurrencyLimit.tryAcquire()) {
-            throw new CodexBusyException();
-        }
+        capacity.acquire();
 
         Path requestWorkspace = null;
         Process process = null;
@@ -91,7 +88,7 @@ public class CodexCliClient implements CodexClient {
             }
             throw new CodexException("The AI request was interrupted.", exception);
         } finally {
-            concurrencyLimit.release();
+            capacity.release();
             deleteWorkspace(requestWorkspace);
         }
     }
