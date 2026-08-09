@@ -5,12 +5,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 import com.ai.service.codex.CodexProperties;
-import com.ai.service.codex.CodexStreamingClient;
+import com.ai.service.conversation.ConversationService;
 import com.ai.service.error.ApiExceptionHandler;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,14 +31,16 @@ class ChatStreamControllerTests {
 
     @BeforeEach
     void setUp() {
-        CodexStreamingClient client = (prompt, onDelta) -> {
+        ConversationService conversationService = mock(ConversationService.class);
+        doAnswer(invocation -> {
+            Consumer<String> onDelta = invocation.getArgument(2);
             onDelta.accept("Hel");
             onDelta.accept("lo");
             return "Hello";
-        };
+        }).when(conversationService).stream(anyString(), anyString(), any());
         CodexProperties properties = new CodexProperties(
                 "codex", Path.of("/tmp"), Duration.ofSeconds(5), 2, 100_000);
-        streamService = new ChatStreamService(client, properties);
+        streamService = new ChatStreamService(conversationService, properties);
         mockMvc = MockMvcBuilders.standaloneSetup(new ChatStreamController(streamService))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();

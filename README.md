@@ -23,8 +23,9 @@ curl --fail-with-body \
   --data '{"conversationId":"abc123","message":"Arrange my tasks into a daily schedule."}'
 ```
 
-The `conversationId` is echoed when supplied and generated when omitted. Each Codex execution is
-ephemeral, so this ID is an application correlation ID; it does not resume Codex context.
+The `conversationId` is generated when omitted. Reuse the returned ID in later requests to resume
+the same durable Codex thread with its previous context. Turns for one conversation are processed
+sequentially; an overlapping request returns `409 Conflict` (or an SSE `error` event).
 
 Success response:
 
@@ -73,10 +74,15 @@ Codex failures return `502`, and execution timeouts return `504`.
 | `CODEX_TIMEOUT` | `2m` | Per-request process timeout |
 | `CODEX_MAX_CONCURRENT_REQUESTS` | `4` | Maximum active Codex processes |
 | `CODEX_MAX_OUTPUT_BYTES` | `1048576` | Maximum JSONL stdout bytes per process |
+| `DATABASE_URL` | Local H2 file | JDBC URL for durable conversation metadata |
+| `DATABASE_USERNAME` | `sa` | Database username |
+| `DATABASE_PASSWORD` | empty | Database password |
+| `DATABASE_POOL_SIZE` | `6` | Maximum JDBC connection pool size |
 
-Prompts are written through stdin and never interpolated into a shell command. Codex runs with an
-empty temporary workspace, `--ephemeral`, `--ignore-user-config`, and the read-only sandbox. The
-temporary workspace is deleted after every request.
+Prompts are encoded as App Server JSON-RPC messages and never interpolated into a shell command.
+Codex runs in an empty temporary workspace with the read-only sandbox. Application conversation
+metadata and completed user/assistant messages are stored in the configured relational database;
+Codex thread history is persisted under `CODEX_HOME` and resumed by its stored thread ID.
 
 This service does not define a deployment-specific identity system. Before exposing it beyond a
 trusted network, put it behind authenticated ingress and enforce caller-level rate limits in

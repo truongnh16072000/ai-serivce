@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -45,7 +46,11 @@ public class CodexAppServerClient implements CodexStreamingClient {
     }
 
     @Override
-    public String stream(String prompt, Consumer<String> onDelta) {
+    public CodexStreamResult stream(
+            String prompt,
+            Optional<String> existingThreadId,
+            Consumer<String> onThreadCreated,
+            Consumer<String> onDelta) {
         capacity.acquire();
         Path workspace = null;
         Process process = null;
@@ -55,15 +60,22 @@ public class CodexAppServerClient implements CodexStreamingClient {
 
             Process runningProcess = process;
             Path runningWorkspace = workspace;
-            CompletableFuture<String> protocol = CompletableFuture.supplyAsync(
-                    () -> runProtocol(runningProcess, runningWorkspace, prompt, onDelta), ioExecutor);
+            CompletableFuture<CodexStreamResult> protocol = CompletableFuture.supplyAsync(
+                    () -> runProtocol(
+                            runningProcess,
+                            runningWorkspace,
+                            prompt,
+                            existingThreadId,
+                            onThreadCreated,
+                            onDelta),
+                    ioExecutor);
             CompletableFuture<Void> stderr = CompletableFuture.runAsync(
                     () -> drainStderr(runningProcess), ioExecutor);
 
-            String answer = protocol.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            CodexStreamResult result = protocol.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
             terminate(process);
             await(stderr);
-            return answer;
+            return result;
         } catch (TimeoutException exception) {
             terminate(process);
             throw new CodexTimeoutException();
@@ -94,7 +106,13 @@ public class CodexAppServerClient implements CodexStreamingClient {
         return builder.start();
     }
 
-    private String runProtocol(Process process, Path workspace, String prompt, Consumer<String> onDelta) {
+    private CodexStreamResult runProtocol(
+            Process process,
+            Path workspace,
+            String prompt,
+            Optional<String> existingThreadId,
+            Consumer<String> onThreadCreated,
+            Consumer<String> onDelta) {
         StringBuilder answer = new StringBuilder();
         try (BufferedWriter writer = new BufferedWriter(
                      new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
@@ -110,19 +128,33 @@ public class CodexAppServerClient implements CodexStreamingClient {
             awaitResponse(reader, 0);
 
             send(writer, Map.of("method", "initialized", "params", Map.of()));
-            send(writer, Map.of(
-                    "method", "thread/start",
-                    "id", 1,
-                    "params", Map.of(
-                            "cwd", workspace.toString(),
-                            "ephemeral", true,
-                            "approvalPolicy", "never",
-                            "sandbox", "read-only",
-                            "serviceName", "htlabs_ai_service")));
+            if (existingThreadId.isPresent()) {
+                send(writer, Map.of(
+                        "method", "thread/resume",
+                        "id", 1,
+                        "params", Map.of(
+                                "threadId", existingThreadId.get(),
+                                "cwd", workspace.toString(),
+                                "approvalPolicy", "never",
+                                "sandbox", "read-only")));
+            } else {
+                send(writer, Map.of(
+                        "method", "thread/start",
+                        "id", 1,
+                        "params", Map.of(
+                                "cwd", workspace.toString(),
+                                "ephemeral", false,
+                                "approvalPolicy", "never",
+                                "sandbox", "read-only",
+                                "serviceName", "htlabs_ai_service")));
+            }
             JsonNode threadResponse = awaitResponse(reader, 1);
             String threadId = threadResponse.path("result").path("thread").path("id").stringValue("");
             if (threadId.isBlank()) {
                 throw new CodexException("Codex App Server did not create a thread.");
+            }
+            if (existingThreadId.isEmpty()) {
+                onThreadCreated.accept(threadId);
             }
 
             send(writer, Map.of(
@@ -150,7 +182,7 @@ public class CodexAppServerClient implements CodexStreamingClient {
                     if (answer.isEmpty()) {
                         throw new CodexException("Codex completed without a streamed response.");
                     }
-                    return answer.toString();
+                    return new CodexStreamResult(threadId, answer.toString());
                 }
             }
         } catch (IOException exception) {

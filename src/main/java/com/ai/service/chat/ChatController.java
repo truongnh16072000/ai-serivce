@@ -1,6 +1,6 @@
 package com.ai.service.chat;
 
-import com.ai.service.codex.CodexClient;
+import com.ai.service.conversation.ConversationService;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.http.MediaType;
@@ -13,10 +13,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/chat")
 public class ChatController {
 
-    private final CodexClient codexClient;
+    private final ConversationService conversationService;
 
-    public ChatController(CodexClient codexClient) {
-        this.codexClient = codexClient;
+    public ChatController(ConversationService conversationService) {
+        this.conversationService = conversationService;
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
@@ -24,6 +24,6 @@ public class ChatController {
         String conversationId = request.conversationId() == null || request.conversationId().isBlank()
                 ? UUID.randomUUID().toString()
                 : request.conversationId();
-        return new AskResponse(conversationId, codexClient.ask(request.message()));
+        return new AskResponse(conversationId, conversationService.ask(conversationId, request.message()));
     }
 }

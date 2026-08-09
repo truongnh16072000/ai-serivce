@@ -3,7 +3,11 @@ package com.ai.service.chat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.ai.service.conversation.ConversationService;
 import com.ai.service.error.ApiExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +21,10 @@ class ChatControllerTests {
 
     @BeforeEach
     void setUp() {
-        ChatController controller = new ChatController(prompt -> "Answer: " + prompt);
+        ConversationService conversationService = mock(ConversationService.class);
+        when(conversationService.ask(anyString(), anyString()))
+                .thenAnswer(invocation -> "Answer: " + invocation.getArgument(1, String.class));
+        ChatController controller = new ChatController(conversationService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();

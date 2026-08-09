@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -45,10 +46,45 @@ class CodexAppServerClientTests {
         client = client(executable);
         List<String> deltas = new ArrayList<>();
 
-        String answer = client.stream("hello", deltas::add);
+        List<String> createdThreads = new ArrayList<>();
+        CodexStreamResult result = client.stream(
+                "hello", Optional.empty(), createdThreads::add, deltas::add);
 
+        assertThat(createdThreads).containsExactly("thr_test");
         assertThat(deltas).containsExactly("Hel", "lo");
-        assertThat(answer).isEqualTo("Hello");
+        assertThat(result).isEqualTo(new CodexStreamResult("thr_test", "Hello"));
+    }
+
+    @Test
+    void resumesTheStoredThreadInsteadOfStartingANewConversation() throws IOException {
+        Path executable = script("""
+                #!/bin/sh
+                IFS= read -r initialize
+                printf '{"id":0,"result":{"userAgent":"test"}}\\n'
+                IFS= read -r initialized
+                IFS= read -r thread_request
+                case "$thread_request" in
+                  *'"method":"thread/resume"'*) ;;
+                  *) printf '{"id":1,"error":{"message":"expected resume"}}\\n'; exit 1 ;;
+                esac
+                case "$thread_request" in
+                  *'"threadId":"thr_existing"'*) ;;
+                  *) printf '{"id":1,"error":{"message":"expected thread id"}}\\n'; exit 1 ;;
+                esac
+                printf '{"id":1,"result":{"thread":{"id":"thr_existing"}}}\\n'
+                IFS= read -r turn_start
+                printf '{"id":2,"result":{"turn":{"id":"turn_test"}}}\\n'
+                printf '{"method":"item/agentMessage/delta","params":{"threadId":"thr_existing","turnId":"turn_test","itemId":"item_1","delta":"Remembered"}}\\n'
+                printf '{"method":"turn/completed","params":{"threadId":"thr_existing","turn":{"id":"turn_test","items":[],"status":"completed"}}}\\n'
+                """);
+        client = client(executable);
+        List<String> createdThreads = new ArrayList<>();
+
+        CodexStreamResult result = client.stream(
+                "what did I say?", Optional.of("thr_existing"), createdThreads::add, ignored -> { });
+
+        assertThat(createdThreads).isEmpty();
+        assertThat(result).isEqualTo(new CodexStreamResult("thr_existing", "Remembered"));
     }
 
     private CodexAppServerClient client(Path executable) {

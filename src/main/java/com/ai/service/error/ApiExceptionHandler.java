@@ -3,6 +3,7 @@ package com.ai.service.error;
 import com.ai.service.codex.CodexBusyException;
 import com.ai.service.codex.CodexException;
 import com.ai.service.codex.CodexTimeoutException;
+import com.ai.service.conversation.ConversationBusyException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.LinkedHashMap;
@@ -33,6 +34,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(CodexBusyException.class)
     ProblemDetail handleBusy(CodexBusyException exception, HttpServletRequest request) {
         return problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ConversationBusyException.class)
+    ProblemDetail handleConversationBusy(ConversationBusyException exception, HttpServletRequest request) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), request);
     }
 
     @ExceptionHandler(CodexTimeoutException.class)

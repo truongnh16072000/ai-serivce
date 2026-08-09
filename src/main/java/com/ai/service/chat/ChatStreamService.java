@@ -2,7 +2,7 @@ package com.ai.service.chat;
 
 import com.ai.service.codex.CodexException;
 import com.ai.service.codex.CodexProperties;
-import com.ai.service.codex.CodexStreamingClient;
+import com.ai.service.conversation.ConversationService;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.Map;
@@ -19,12 +19,12 @@ public class ChatStreamService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatStreamService.class);
 
-    private final CodexStreamingClient codexClient;
+    private final ConversationService conversationService;
     private final CodexProperties properties;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public ChatStreamService(CodexStreamingClient codexClient, CodexProperties properties) {
-        this.codexClient = codexClient;
+    public ChatStreamService(ConversationService conversationService, CodexProperties properties) {
+        this.conversationService = conversationService;
         this.properties = properties;
     }
 
@@ -35,7 +35,9 @@ public class ChatStreamService {
 
         executor.submit(() -> {
             try {
-                String answer = codexClient.stream(prompt,
+                String answer = conversationService.stream(
+                        conversationId,
+                        prompt,
                         delta -> send(emitter, eventId, "delta", Map.of("text", delta)));
                 send(emitter, eventId, "completed", Map.of(
                         "conversationId", conversationId,
