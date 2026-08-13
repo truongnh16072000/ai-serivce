@@ -65,15 +65,36 @@ data:{"conversationId":"abc123","answer":"Server-sent events ..."}
 Validation and execution failures use `application/problem+json`. Capacity errors return `429`,
 Codex failures return `502`, and execution timeouts return `504`.
 
+### Image generation
+
+Generate one image from a text prompt through Codex's built-in `$imagegen` capability:
+
+```bash
+curl --fail-with-body \
+  --request POST http://localhost:8080/api/v1/images/generations \
+  --header 'Content-Type: application/json' \
+  --data '{"prompt":"A lighthouse during a storm, cinematic editorial illustration."}' \
+  --output codex-image.png
+```
+
+The response is the generated image as a binary download with an attachment filename such as
+`codex-image.png`. It includes `Cache-Control: no-store`; no temporary image path is exposed.
+
+Image generation runs in a fresh ephemeral Codex thread and counts against the Codex account's
+image-generation usage limits. The image is copied into the response before the temporary Codex
+workspace is deleted, including when Codex supplies a temporary saved path.
+
 ## Configuration
 
 | Environment variable | Default | Purpose |
 |---|---:|---|
 | `CODEX_EXECUTABLE` | `codex` | Codex CLI executable path |
 | `CODEX_WORKSPACE_ROOT` | JVM temporary directory | Parent for isolated per-request workspaces |
+| `CODEX_GENERATED_IMAGES_ROOT` | `$CODEX_HOME/generated_images` | Trusted Codex image cache read and cleaned after generation |
 | `CODEX_TIMEOUT` | `2m` | Per-request process timeout |
 | `CODEX_MAX_CONCURRENT_REQUESTS` | `4` | Maximum active Codex processes |
 | `CODEX_MAX_OUTPUT_BYTES` | `1048576` | Maximum JSONL stdout bytes per process |
+| `CODEX_MAX_IMAGE_OUTPUT_BYTES` | `26214400` | Maximum JSONL stdout bytes for an image-generation process |
 | `DATABASE_URL` | Local H2 file | JDBC URL for durable conversation metadata |
 | `DATABASE_USERNAME` | `sa` | Database username |
 | `DATABASE_PASSWORD` | empty | Database password |

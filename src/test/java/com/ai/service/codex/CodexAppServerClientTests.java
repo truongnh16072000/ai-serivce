@@ -87,9 +87,72 @@ class CodexAppServerClientTests {
         assertThat(result).isEqualTo(new CodexStreamResult("thr_existing", "Remembered"));
     }
 
+    @Test
+    void generatesAnImageThroughTheCodexImageGenerationTool() throws IOException {
+        Path executable = script("""
+                #!/bin/sh
+                IFS= read -r initialize
+                printf '{"id":0,"result":{"userAgent":"test"}}\\n'
+                IFS= read -r initialized
+                IFS= read -r thread_start
+                case "$thread_start" in
+                  *'"ephemeral":true'*) ;;
+                  *) printf '{"id":1,"error":{"message":"expected ephemeral thread"}}\\n'; exit 1 ;;
+                esac
+                printf '{"id":1,"result":{"thread":{"id":"thr_image"}}}\\n'
+                IFS= read -r turn_start
+                case "$turn_start" in
+                  *'$imagegen\\nA lighthouse during a storm'*) ;;
+                  *) printf '{"id":2,"error":{"message":"expected imagegen prompt"}}\\n'; exit 1 ;;
+                esac
+                printf '{"id":2,"result":{"turn":{"id":"turn_image"}}}\\n'
+                printf '{"method":"item/completed","params":{"threadId":"thr_image","turnId":"turn_image","completedAtMs":1,"item":{"id":"image_1","type":"imageGeneration","status":"completed","result":"data:image/png;base64,aW1hZ2U=","revisedPrompt":"A dramatic lighthouse","transparentBackground":false}}}\\n'
+                printf '{"method":"turn/completed","params":{"threadId":"thr_image","turn":{"id":"turn_image","items":[],"status":"completed"}}}\\n'
+                """);
+        client = client(executable);
+
+        CodexImageResult result = client.generate("A lighthouse during a storm");
+
+        assertThat(result.content()).isEqualTo("image".getBytes());
+        assertThat(result.mediaType()).isEqualTo("image/png");
+        assertThat(result.filename()).isEqualTo("codex-image.png");
+    }
+
+    @Test
+    void readsAndDeletesAnImageFromTheCodexGeneratedImagesCache() throws IOException {
+        Path imageDirectory = tempDirectory.resolve("generated-images/thread-test");
+        Files.createDirectories(imageDirectory);
+        Path imagePath = imageDirectory.resolve("generated.png");
+        Path executable = script(("""
+                #!/bin/sh
+                IFS= read -r initialize
+                printf '{"id":0,"result":{"userAgent":"test"}}\\n'
+                IFS= read -r initialized
+                IFS= read -r thread_start
+                printf '{"id":1,"result":{"thread":{"id":"thr_image"}}}\\n'
+                IFS= read -r turn_start
+                printf '\\211PNG\\r\\n\\032\\npixels' > '%s'
+                printf '{"id":2,"result":{"turn":{"id":"turn_image"}}}\\n'
+                printf '{"method":"item/completed","params":{"threadId":"thr_image","turnId":"turn_image","completedAtMs":1,"item":{"id":"image_1","type":"imageGeneration","status":"completed","result":"saved","savedPath":"%s"}}}\\n'
+                printf '{"method":"turn/completed","params":{"threadId":"thr_image","turn":{"id":"turn_image","items":[],"status":"completed"}}}\\n'
+                """).formatted(imagePath, imagePath));
+        client = client(executable);
+
+        CodexImageResult result = client.generate("A lighthouse during a storm");
+
+        assertThat(result.mediaType()).isEqualTo("image/png");
+        assertThat(result.content()).startsWith((byte) 0x89, (byte) 'P', (byte) 'N', (byte) 'G');
+        assertThat(imagePath).doesNotExist();
+        assertThat(imageDirectory).doesNotExist();
+        try (var workspaces = Files.list(tempDirectory.resolve("workspaces"))) {
+            assertThat(workspaces).isEmpty();
+        }
+    }
+
     private CodexAppServerClient client(Path executable) {
         CodexProperties properties = new CodexProperties(
-                executable.toString(), tempDirectory.resolve("workspaces"), Duration.ofSeconds(5), 2, 100_000);
+                executable.toString(), tempDirectory.resolve("workspaces"), tempDirectory.resolve("generated-images"),
+                Duration.ofSeconds(5), 2, 100_000, 1_000_000);
         try {
             Files.createDirectories(properties.workspaceRoot());
         } catch (IOException exception) {

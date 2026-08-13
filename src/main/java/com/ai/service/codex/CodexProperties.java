@@ -15,9 +15,11 @@ import org.springframework.validation.annotation.Validated;
 public record CodexProperties(
         @NotBlank String executable,
         @NotNull Path workspaceRoot,
+        @NotNull Path generatedImagesRoot,
         @NotNull Duration timeout,
         @Min(1) @Max(100) int maxConcurrentRequests,
-        @Min(1_024) @Max(100_000_000) int maxOutputBytes
+        @Min(1_024) @Max(100_000_000) int maxOutputBytes,
+        @Min(1_024) @Max(100_000_000) int maxImageOutputBytes
 ) {
     @AssertTrue(message = "app.codex.timeout must be between 1 second and 10 minutes")
     public boolean isTimeoutValid() {

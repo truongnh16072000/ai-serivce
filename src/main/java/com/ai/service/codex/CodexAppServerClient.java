@@ -10,6 +10,7 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +30,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
-public class CodexAppServerClient implements CodexStreamingClient {
+public class CodexAppServerClient implements CodexStreamingClient, CodexImageGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(CodexAppServerClient.class);
     private static final int MAX_ERROR_BYTES = 16 * 1024;
@@ -51,6 +52,16 @@ public class CodexAppServerClient implements CodexStreamingClient {
             Optional<String> existingThreadId,
             Consumer<String> onThreadCreated,
             Consumer<String> onDelta) {
+        return execute((process, workspace) -> runProtocol(
+                process, workspace, prompt, existingThreadId, onThreadCreated, onDelta));
+    }
+
+    @Override
+    public CodexImageResult generate(String prompt) {
+        return execute((process, workspace) -> runImageProtocol(process, workspace, prompt));
+    }
+
+    private <T> T execute(Protocol<T> protocolRunner) {
         capacity.acquire();
         Path workspace = null;
         Process process = null;
@@ -60,19 +71,13 @@ public class CodexAppServerClient implements CodexStreamingClient {
 
             Process runningProcess = process;
             Path runningWorkspace = workspace;
-            CompletableFuture<CodexStreamResult> protocol = CompletableFuture.supplyAsync(
-                    () -> runProtocol(
-                            runningProcess,
-                            runningWorkspace,
-                            prompt,
-                            existingThreadId,
-                            onThreadCreated,
-                            onDelta),
+            CompletableFuture<T> protocol = CompletableFuture.supplyAsync(
+                    () -> protocolRunner.run(runningProcess, runningWorkspace),
                     ioExecutor);
             CompletableFuture<Void> stderr = CompletableFuture.runAsync(
                     () -> drainStderr(runningProcess), ioExecutor);
 
-            CodexStreamResult result = protocol.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            T result = protocol.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
             terminate(process);
             await(stderr);
             return result;
@@ -85,7 +90,7 @@ public class CodexAppServerClient implements CodexStreamingClient {
             if (cause instanceof CodexException codexException) {
                 throw codexException;
             }
-            throw new CodexException("Could not stream the Codex response.", cause);
+            throw new CodexException("Could not complete the Codex request.", cause);
         } catch (IOException exception) {
             terminate(process);
             throw new CodexException("Could not start the Codex App Server.", exception);
@@ -118,16 +123,7 @@ public class CodexAppServerClient implements CodexStreamingClient {
                      new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
              BoundedLineReader reader = new BoundedLineReader(
                      process.getInputStream(), properties.maxOutputBytes())) {
-            send(writer, Map.of(
-                    "method", "initialize",
-                    "id", 0,
-                    "params", Map.of("clientInfo", Map.of(
-                            "name", "htlabs_ai_service",
-                            "title", "HT Labs AI Service",
-                            "version", "1.0"))));
-            awaitResponse(reader, 0);
-
-            send(writer, Map.of("method", "initialized", "params", Map.of()));
+            initialize(writer, reader);
             if (existingThreadId.isPresent()) {
                 send(writer, Map.of(
                         "method", "thread/resume",
@@ -188,6 +184,243 @@ public class CodexAppServerClient implements CodexStreamingClient {
         } catch (IOException exception) {
             throw new CodexException("Could not communicate with the Codex App Server.", exception);
         }
+    }
+
+    private CodexImageResult runImageProtocol(Process process, Path workspace, String prompt) {
+        CodexImageResult image = null;
+        try (BufferedWriter writer = new BufferedWriter(
+                     new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+             BoundedLineReader reader = new BoundedLineReader(
+                     process.getInputStream(), properties.maxImageOutputBytes())) {
+            initialize(writer, reader);
+            send(writer, Map.of(
+                    "method", "thread/start",
+                    "id", 1,
+                    "params", Map.of(
+                            "cwd", workspace.toString(),
+                            "ephemeral", true,
+                            "approvalPolicy", "never",
+                            "sandbox", "read-only",
+                            "serviceName", "htlabs_ai_service")));
+            JsonNode threadResponse = awaitResponse(reader, 1);
+            String threadId = threadResponse.path("result").path("thread").path("id").stringValue("");
+            if (threadId.isBlank()) {
+                throw new CodexException("Codex App Server did not create an image-generation thread.");
+            }
+
+            send(writer, Map.of(
+                    "method", "turn/start",
+                    "id", 2,
+                    "params", Map.of(
+                            "threadId", threadId,
+                            "input", List.of(Map.of(
+                                    "type", "text",
+                                    "text", "$imagegen\n" + prompt)))));
+
+            while (true) {
+                JsonNode message = readMessage(reader);
+                rejectProtocolError(message);
+                String method = message.path("method").stringValue("");
+                if ("item/completed".equals(method)) {
+                    JsonNode item = message.path("params").path("item");
+                    if ("imageGeneration".equals(item.path("type").stringValue(""))) {
+                        String result = item.path("result").stringValue("");
+                        String savedPath = nullableText(item.path("savedPath"));
+                        if (result.isBlank() && savedPath == null) {
+                            throw new CodexException("Codex completed image generation without an image.");
+                        }
+                        image = readGeneratedImage(result, savedPath, workspace);
+                    }
+                } else if ("turn/completed".equals(method)) {
+                    String status = message.path("params").path("turn").path("status").stringValue("");
+                    if (!"completed".equals(status)) {
+                        throw new CodexException("Codex could not complete image generation.");
+                    }
+                    if (image == null) {
+                        throw new CodexException("Codex completed without generating an image.");
+                    }
+                    return image;
+                }
+            }
+        } catch (IOException exception) {
+            throw new CodexException("Could not communicate with the Codex App Server.", exception);
+        }
+    }
+
+    private void initialize(BufferedWriter writer, BoundedLineReader reader) throws IOException {
+        send(writer, Map.of(
+                "method", "initialize",
+                "id", 0,
+                "params", Map.of("clientInfo", Map.of(
+                        "name", "htlabs_ai_service",
+                        "title", "HT Labs AI Service",
+                        "version", "1.0"))));
+        awaitResponse(reader, 0);
+        send(writer, Map.of("method", "initialized", "params", Map.of()));
+    }
+
+    private String nullableText(JsonNode node) {
+        return node.isString() ? node.stringValue() : null;
+    }
+
+    private CodexImageResult readGeneratedImage(String result, String savedPath, Path workspace) {
+        try {
+            CodexImageResult image;
+            if (result.startsWith("data:")) {
+                image = decodeDataUrl(result);
+            } else {
+                image = decodeRawImage(result);
+                if (image == null) {
+                    if (savedPath == null || savedPath.isBlank()) {
+                        throw new CodexException("Codex returned an unsupported generated-image result.");
+                    }
+                    return readSavedImage(savedPath, workspace);
+                }
+            }
+            deleteManagedSavedImage(savedPath, workspace);
+            return image;
+        } catch (IllegalArgumentException exception) {
+            throw new CodexException("Codex returned malformed generated-image data.", exception);
+        }
+    }
+
+    private CodexImageResult decodeRawImage(String result) {
+        if (result.isBlank()) {
+            return null;
+        }
+        try {
+            byte[] content = Base64.getDecoder().decode(result);
+            String mediaType = detectImageType(content);
+            return new CodexImageResult(content, mediaType, filenameFor(mediaType));
+        } catch (IllegalArgumentException | CodexException exception) {
+            return null;
+        }
+    }
+
+    private CodexImageResult decodeDataUrl(String dataUrl) {
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0) {
+            throw new CodexException("Codex returned a malformed generated-image data URL.");
+        }
+        String metadata = dataUrl.substring(5, comma);
+        int separator = metadata.indexOf(';');
+        String mediaType = separator < 0 ? metadata : metadata.substring(0, separator);
+        if (!metadata.endsWith(";base64") || !isSupportedImageType(mediaType)) {
+            throw new CodexException("Codex returned an unsupported generated-image format.");
+        }
+        try {
+            byte[] content = Base64.getDecoder().decode(dataUrl.substring(comma + 1));
+            validateImageSize(content.length);
+            return new CodexImageResult(content, mediaType, filenameFor(mediaType));
+        } catch (IllegalArgumentException exception) {
+            throw new CodexException("Codex returned malformed generated-image data.", exception);
+        }
+    }
+
+    private CodexImageResult readSavedImage(String savedPath, Path workspace) {
+        try {
+            Path imagePath = Path.of(savedPath).toRealPath();
+            if (!isManagedImagePath(imagePath, workspace) || !Files.isRegularFile(imagePath)) {
+                throw new CodexException("Codex returned an unsafe generated-image path.");
+            }
+            long size = Files.size(imagePath);
+            if (size > properties.maxImageOutputBytes()) {
+                throw new CodexException("Codex generated an image larger than the configured limit.");
+            }
+            byte[] content = Files.readAllBytes(imagePath);
+            String mediaType = detectImageType(content);
+            deleteManagedSavedImage(savedPath, workspace);
+            return new CodexImageResult(content, mediaType, filenameFor(mediaType));
+        } catch (IOException | RuntimeException exception) {
+            if (exception instanceof CodexException codexException) {
+                throw codexException;
+            }
+            throw new CodexException("Could not read the generated image.", exception);
+        }
+    }
+
+    private boolean isManagedImagePath(Path imagePath, Path workspace) throws IOException {
+        if (imagePath.startsWith(workspace.toRealPath())) {
+            return true;
+        }
+        Path generatedImagesRoot = properties.generatedImagesRoot();
+        return Files.isDirectory(generatedImagesRoot)
+                && imagePath.startsWith(generatedImagesRoot.toRealPath());
+    }
+
+    private void deleteManagedSavedImage(String savedPath, Path workspace) {
+        if (savedPath == null || savedPath.isBlank()) {
+            return;
+        }
+        try {
+            Path imagePath = Path.of(savedPath).toRealPath();
+            if (!isManagedImagePath(imagePath, workspace) || !Files.isRegularFile(imagePath)) {
+                return;
+            }
+            Files.deleteIfExists(imagePath);
+            Path parent = imagePath.getParent();
+            if (parent != null && !parent.equals(workspace) && !parent.equals(properties.generatedImagesRoot())) {
+                try (var entries = Files.list(parent)) {
+                    if (entries.findAny().isEmpty()) {
+                        Files.deleteIfExists(parent);
+                    }
+                }
+            }
+        } catch (IOException exception) {
+            log.warn("Could not delete generated Codex image {}", savedPath, exception);
+        }
+    }
+
+    private void validateImageSize(int size) {
+        if (size == 0) {
+            throw new CodexException("Codex generated an empty image.");
+        }
+        if (size > properties.maxImageOutputBytes()) {
+            throw new CodexException("Codex generated an image larger than the configured limit.");
+        }
+    }
+
+    private String detectImageType(byte[] content) {
+        validateImageSize(content.length);
+        if (content.length >= 8
+                && (content[0] & 0xff) == 0x89
+                && content[1] == 'P'
+                && content[2] == 'N'
+                && content[3] == 'G') {
+            return "image/png";
+        }
+        if (content.length >= 3
+                && (content[0] & 0xff) == 0xff
+                && (content[1] & 0xff) == 0xd8
+                && (content[2] & 0xff) == 0xff) {
+            return "image/jpeg";
+        }
+        if (content.length >= 12
+                && content[0] == 'R'
+                && content[1] == 'I'
+                && content[2] == 'F'
+                && content[3] == 'F'
+                && content[8] == 'W'
+                && content[9] == 'E'
+                && content[10] == 'B'
+                && content[11] == 'P') {
+            return "image/webp";
+        }
+        throw new CodexException("Codex generated an unsupported image format.");
+    }
+
+    private boolean isSupportedImageType(String mediaType) {
+        return "image/png".equals(mediaType)
+                || "image/jpeg".equals(mediaType)
+                || "image/webp".equals(mediaType);
+    }
+
+    private String filenameFor(String mediaType) {
+        return switch (mediaType) {
+            case "image/jpeg" -> "codex-image.jpg";
+            case "image/webp" -> "codex-image.webp";
+            default -> "codex-image.png";
+        };
     }
 
     private JsonNode awaitResponse(BoundedLineReader reader, int expectedId) throws IOException {
@@ -291,6 +524,11 @@ public class CodexAppServerClient implements CodexStreamingClient {
     @PreDestroy
     void closeExecutor() {
         ioExecutor.close();
+    }
+
+    @FunctionalInterface
+    private interface Protocol<T> {
+        T run(Process process, Path workspace);
     }
 
     private static final class BoundedLineReader implements AutoCloseable {
