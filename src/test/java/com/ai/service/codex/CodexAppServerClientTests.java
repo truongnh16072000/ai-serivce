@@ -102,8 +102,8 @@ class CodexAppServerClientTests {
                 printf '{"id":1,"result":{"thread":{"id":"thr_image"}}}\\n'
                 IFS= read -r turn_start
                 case "$turn_start" in
-                  *'$imagegen\\nA lighthouse during a storm'*) ;;
-                  *) printf '{"id":2,"error":{"message":"expected imagegen prompt"}}\\n'; exit 1 ;;
+                  *'$imagegen\\nGenerate exactly one image now.'*'Image brief:\\nA lighthouse during a storm'*) ;;
+                  *) printf '{"id":2,"error":{"message":"expected forced imagegen prompt"}}\\n'; exit 1 ;;
                 esac
                 printf '{"id":2,"result":{"turn":{"id":"turn_image"}}}\\n'
                 printf '{"method":"item/completed","params":{"threadId":"thr_image","turnId":"turn_image","completedAtMs":1,"item":{"id":"image_1","type":"imageGeneration","status":"completed","result":"data:image/png;base64,aW1hZ2U=","revisedPrompt":"A dramatic lighthouse","transparentBackground":false}}}\\n'

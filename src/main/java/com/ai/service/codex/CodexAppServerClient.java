@@ -35,6 +35,15 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
 
     private static final Logger log = LoggerFactory.getLogger(CodexAppServerClient.class);
     private static final int MAX_ERROR_BYTES = 16 * 1024;
+    private static final String IMAGE_GENERATION_INSTRUCTIONS = """
+            $imagegen
+            Generate exactly one image now. Treat the text under "Image brief" as an image-generation
+            brief, not as a conversational request. Do not answer with text, ask a question, create a
+            plan, or explain your work. Use reasonable visual defaults for underspecified details and
+            always invoke image generation.
+
+            Image brief:
+            """;
 
     private final CodexProperties properties;
     private final CodexCapacity capacity;
@@ -220,7 +229,7 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
             }
 
             List<Map<String, String>> input = new ArrayList<>(referenceImages.size() + 1);
-            input.add(Map.of("type", "text", "text", "$imagegen\n" + prompt));
+            input.add(Map.of("type", "text", "text", IMAGE_GENERATION_INSTRUCTIONS + prompt));
             for (int index = 0; index < referenceImages.size(); index++) {
                 CodexReferenceImage reference = referenceImages.get(index);
                 Path referencePath = workspace.resolve("reference-" + (index + 1) + "." + reference.extension());
