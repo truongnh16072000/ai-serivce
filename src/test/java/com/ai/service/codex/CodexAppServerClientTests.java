@@ -119,6 +119,41 @@ class CodexAppServerClientTests {
     }
 
     @Test
+    void suppliesReferenceImagesAsLocalImageTurnInputs() throws IOException {
+        Path executable = script("""
+                #!/bin/sh
+                IFS= read -r initialize
+                printf '{"id":0,"result":{"userAgent":"test"}}\\n'
+                IFS= read -r initialized
+                IFS= read -r thread_start
+                printf '{"id":1,"result":{"thread":{"id":"thr_image"}}}\\n'
+                IFS= read -r turn_start
+                case "$turn_start" in
+                  *'"type":"localImage"'*) ;;
+                  *) printf '{"id":2,"error":{"message":"expected local image"}}\\n'; exit 1 ;;
+                esac
+                case "$turn_start" in
+                  *'reference-1.png'*) ;;
+                  *) printf '{"id":2,"error":{"message":"expected reference path"}}\\n'; exit 1 ;;
+                esac
+                test -f "$PWD/reference-1.png" || exit 1
+                printf '{"id":2,"result":{"turn":{"id":"turn_image"}}}\\n'
+                printf '{"method":"item/completed","params":{"threadId":"thr_image","turnId":"turn_image","completedAtMs":1,"item":{"id":"image_1","type":"imageGeneration","status":"completed","result":"data:image/png;base64,aW1hZ2U="}}}\\n'
+                printf '{"method":"turn/completed","params":{"threadId":"thr_image","turn":{"id":"turn_image","items":[],"status":"completed"}}}\\n'
+                """);
+        client = client(executable);
+        byte[] reference = new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1};
+
+        CodexImageResult result = client.generate(
+                "Use the reference composition", List.of(new CodexReferenceImage(reference, "png")));
+
+        assertThat(result.content()).isEqualTo("image".getBytes());
+        try (var workspaces = Files.list(tempDirectory.resolve("workspaces"))) {
+            assertThat(workspaces).isEmpty();
+        }
+    }
+
+    @Test
     void readsAndDeletesAnImageFromTheCodexGeneratedImagesCache() throws IOException {
         Path imageDirectory = tempDirectory.resolve("generated-images/thread-test");
         Files.createDirectories(imageDirectory);

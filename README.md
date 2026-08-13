@@ -80,6 +80,20 @@ curl --fail-with-body \
 The response is the generated image as a binary download with an attachment filename such as
 `codex-image.png`. It includes `Cache-Control: no-store`; no temporary image path is exposed.
 
+To guide generation with one to five PNG, JPEG, or WebP reference images, send multipart data:
+
+```bash
+curl --fail-with-body \
+  --request POST http://localhost:8080/api/v1/images/generations \
+  --form 'prompt=Keep the composition but use a warm editorial illustration style.' \
+  --form 'images=@reference-1.png' \
+  --form 'images=@reference-2.jpg' \
+  --output codex-image.png
+```
+
+Each reference may be at most 10 MB. References are copied into the isolated Codex workspace and
+deleted as soon as generation finishes.
+
 Image generation runs in a fresh ephemeral Codex thread and counts against the Codex account's
 image-generation usage limits. The image is copied into the response before the temporary Codex
 workspace is deleted, including when Codex supplies a temporary saved path.
@@ -95,6 +109,8 @@ workspace is deleted, including when Codex supplies a temporary saved path.
 | `CODEX_MAX_CONCURRENT_REQUESTS` | `4` | Maximum active Codex processes |
 | `CODEX_MAX_OUTPUT_BYTES` | `1048576` | Maximum JSONL stdout bytes per process |
 | `CODEX_MAX_IMAGE_OUTPUT_BYTES` | `26214400` | Maximum JSONL stdout bytes for an image-generation process |
+| `IMAGE_MAX_REFERENCE_FILE_SIZE` | `10MB` | Multipart limit for one reference image |
+| `IMAGE_MAX_REFERENCE_REQUEST_SIZE` | `52MB` | Multipart limit for an entire reference-image request |
 | `DATABASE_URL` | Local H2 file | JDBC URL for durable conversation metadata |
 | `DATABASE_USERNAME` | `sa` | Database username |
 | `DATABASE_PASSWORD` | empty | Database password |

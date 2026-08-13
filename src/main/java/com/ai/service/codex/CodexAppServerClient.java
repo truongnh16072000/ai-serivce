@@ -10,6 +10,7 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
@@ -58,7 +59,13 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
 
     @Override
     public CodexImageResult generate(String prompt) {
-        return execute((process, workspace) -> runImageProtocol(process, workspace, prompt));
+        return generate(prompt, List.of());
+    }
+
+    @Override
+    public CodexImageResult generate(String prompt, List<CodexReferenceImage> referenceImages) {
+        List<CodexReferenceImage> references = List.copyOf(referenceImages);
+        return execute((process, workspace) -> runImageProtocol(process, workspace, prompt, references));
     }
 
     private <T> T execute(Protocol<T> protocolRunner) {
@@ -186,7 +193,11 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
         }
     }
 
-    private CodexImageResult runImageProtocol(Process process, Path workspace, String prompt) {
+    private CodexImageResult runImageProtocol(
+            Process process,
+            Path workspace,
+            String prompt,
+            List<CodexReferenceImage> referenceImages) {
         CodexImageResult image = null;
         try (BufferedWriter writer = new BufferedWriter(
                      new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
@@ -208,14 +219,21 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
                 throw new CodexException("Codex App Server did not create an image-generation thread.");
             }
 
+            List<Map<String, String>> input = new ArrayList<>(referenceImages.size() + 1);
+            input.add(Map.of("type", "text", "text", "$imagegen\n" + prompt));
+            for (int index = 0; index < referenceImages.size(); index++) {
+                CodexReferenceImage reference = referenceImages.get(index);
+                Path referencePath = workspace.resolve("reference-" + (index + 1) + "." + reference.extension());
+                Files.write(referencePath, reference.content());
+                input.add(Map.of("type", "localImage", "path", referencePath.toString()));
+            }
+
             send(writer, Map.of(
                     "method", "turn/start",
                     "id", 2,
                     "params", Map.of(
                             "threadId", threadId,
-                            "input", List.of(Map.of(
-                                    "type", "text",
-                                    "text", "$imagegen\n" + prompt)))));
+                            "input", input)));
 
             while (true) {
                 JsonNode message = readMessage(reader);

@@ -4,6 +4,7 @@ import com.ai.service.codex.CodexBusyException;
 import com.ai.service.codex.CodexException;
 import com.ai.service.codex.CodexTimeoutException;
 import com.ai.service.conversation.ConversationBusyException;
+import com.ai.service.image.ImageRequestException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.LinkedHashMap;
@@ -15,6 +16,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -34,6 +36,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(CodexBusyException.class)
     ProblemDetail handleBusy(CodexBusyException exception, HttpServletRequest request) {
         return problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ImageRequestException.class)
+    ProblemDetail handleImageRequest(ImageRequestException exception, HttpServletRequest request) {
+        return problem(HttpStatus.BAD_REQUEST, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ProblemDetail handleUploadTooLarge(MaxUploadSizeExceededException exception, HttpServletRequest request) {
+        return problem(HttpStatus.CONTENT_TOO_LARGE, "reference image upload is too large", request);
     }
 
     @ExceptionHandler(ConversationBusyException.class)
