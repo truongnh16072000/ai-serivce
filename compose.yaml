@@ -1,0 +1,45 @@
+services:
+  ai-service:
+    image: ai-service:local
+    build:
+      context: .
+      args:
+        CODEX_VERSION: ${CODEX_VERSION:-0.147.0}
+    container_name: ai-service
+    env_file:
+      # Database credentials and TELEGRAM_BOT_TOKEN remain only on the host.
+      - ${AI_SERVICE_ENV_FILE:-/etc/ai-service/database.env}
+    environment:
+      # PostgreSQL is reached over a private Docker network, never via a
+      # host-published port.
+      DATABASE_URL: ${DATABASE_URL_CONTAINER:-jdbc:postgresql://postgres:5432/ai_service}
+      HOME: /var/lib/ai-service
+      CODEX_HOME: /var/lib/ai-service/.codex
+      CODEX_EXECUTABLE: /usr/local/bin/codex
+      CODEX_WORKSPACE_ROOT: /var/lib/ai-service/workspaces
+      CODEX_TIMEOUT: 2m
+      CODEX_MAX_CONCURRENT_REQUESTS: 4
+      CODEX_MAX_OUTPUT_BYTES: 1048576
+      CODEX_MAX_IMAGE_OUTPUT_BYTES: 26214400
+      TELEGRAM_TIMEOUT: ${TELEGRAM_TIMEOUT:-10s}
+      TELEGRAM_ASYNC_THREADS: ${TELEGRAM_ASYNC_THREADS:-1}
+      TELEGRAM_QUEUE_CAPACITY: ${TELEGRAM_QUEUE_CAPACITY:-100}
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: 18080
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+    ports:
+      - "127.0.0.1:18080:18080"
+    volumes:
+      # Preserve the authenticated Codex session and durable thread data.
+      - /var/lib/ai-service/.codex:/var/lib/ai-service/.codex
+      - /var/lib/ai-service/workspaces:/var/lib/ai-service/workspaces
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    networks:
+      - data
+
+networks:
+  data:
+    name: ai-service-data
+    external: true

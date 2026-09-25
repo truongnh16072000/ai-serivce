@@ -98,6 +98,22 @@ Image generation runs in a fresh ephemeral Codex thread and counts against the C
 image-generation usage limits. The image is copied into the response before the temporary Codex
 workspace is deleted, including when Codex supplies a temporary saved path.
 
+### Telegram messages
+
+Queue a Telegram Bot API message without waiting for Telegram delivery:
+
+```bash
+curl --fail-with-body \
+  --request POST http://localhost:8080/api/v1/telegram/messages \
+  --header 'Content-Type: application/json' \
+  --data '{"text":"Background job finished."}'
+```
+
+The endpoint returns `202 Accepted` as soon as the message enters the in-memory delivery queue.
+Set `TELEGRAM_DEFAULT_CHAT_ID`, or include `chatId` in the request. Optional `parseMode` values are
+`HTML`, `Markdown`, and `MarkdownV2`. Delivery errors occur after the response and are written to
+the service log. Queued messages are not durable across service restarts.
+
 ## Configuration
 
 | Environment variable | Default | Purpose |
@@ -115,6 +131,11 @@ workspace is deleted, including when Codex supplies a temporary saved path.
 | `DATABASE_USERNAME` | `sa` | Database username |
 | `DATABASE_PASSWORD` | empty | Database password |
 | `DATABASE_POOL_SIZE` | `6` | Maximum JDBC connection pool size |
+| `TELEGRAM_BOT_TOKEN` | empty | Telegram bot token (required for Telegram messages) |
+| `TELEGRAM_DEFAULT_CHAT_ID` | empty | Destination used when a request omits `chatId` |
+| `TELEGRAM_TIMEOUT` | `10s` | Telegram connect and response timeout |
+| `TELEGRAM_ASYNC_THREADS` | `1` | Background Telegram sender thread; messages are spaced one second apart |
+| `TELEGRAM_QUEUE_CAPACITY` | `100` | Maximum messages waiting for background delivery |
 
 Prompts are encoded as App Server JSON-RPC messages and never interpolated into a shell command.
 Codex runs in an empty temporary workspace with the read-only sandbox. Application conversation
@@ -130,3 +151,28 @@ addition to the built-in process concurrency limit.
 ```bash
 ./gradlew clean build
 ```
+
+## Docker deployment
+
+Production runs the API with Docker Compose. The image pins Java 21 and the
+Codex CLI, while the authenticated Codex home and isolated workspaces remain
+on the host. PostgreSQL is reached only through the private `ai-service-data`
+Docker network; it is not exposed to the API container through a host port.
+
+The host must retain `/etc/ai-service/database.env`. Add the Telegram settings to that file so
+Compose passes them to the container without storing the bot token in source control:
+
+```dotenv
+TELEGRAM_BOT_TOKEN=123456:replace-with-real-token
+TELEGRAM_DEFAULT_CHAT_ID=-1001234567890
+```
+
+Then deploy from a trusted checkout with:
+
+```bash
+./deploy/deploy-compose.sh root@96.9.225.75
+```
+
+The script builds before stopping the legacy systemd service and restores it
+automatically if the replacement container cannot answer a local request.
+Docker health checks `/actuator/health`, including the database connection.

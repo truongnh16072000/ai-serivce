@@ -5,6 +5,10 @@ import com.ai.service.codex.CodexException;
 import com.ai.service.codex.CodexTimeoutException;
 import com.ai.service.conversation.ConversationBusyException;
 import com.ai.service.image.ImageRequestException;
+import com.ai.service.access.AppAccessDeniedException;
+import com.ai.service.ratelimit.RateLimitExceededException;
+import com.ai.service.telegram.TelegramException;
+import com.ai.service.telegram.TelegramQueueFullException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import java.util.LinkedHashMap;
@@ -36,6 +40,34 @@ public class ApiExceptionHandler {
     @ExceptionHandler(CodexBusyException.class)
     ProblemDetail handleBusy(CodexBusyException exception, HttpServletRequest request) {
         return problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(AppAccessDeniedException.class)
+    ProblemDetail handleAppAccessDenied(AppAccessDeniedException exception, HttpServletRequest request) {
+        return problem(HttpStatus.FORBIDDEN, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    ProblemDetail handleRateLimit(RateLimitExceededException exception, HttpServletRequest request) {
+        ProblemDetail problem = problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), request);
+        problem.setProperty("limit", exception.getLimit());
+        problem.setProperty("remaining", exception.getRemaining());
+        problem.setProperty("resetAfterSeconds", exception.getResetAfterSeconds());
+        problem.setProperty("retryAfterSeconds", exception.getRetryAfterSeconds());
+        return problem;
+    }
+
+    @ExceptionHandler(TelegramException.class)
+    ProblemDetail handleTelegram(TelegramException exception, HttpServletRequest request) {
+        HttpStatus status = exception.getStatusCode() >= 400 && exception.getStatusCode() < 500
+                ? HttpStatus.BAD_REQUEST
+                : HttpStatus.BAD_GATEWAY;
+        return problem(status, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(TelegramQueueFullException.class)
+    ProblemDetail handleTelegramQueueFull(TelegramQueueFullException exception, HttpServletRequest request) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ImageRequestException.class)
