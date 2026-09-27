@@ -7,6 +7,7 @@ import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
@@ -29,6 +30,7 @@ public class ChatStreamService {
     }
 
     public SseEmitter stream(String conversationId, String prompt) {
+        long startedAt = System.nanoTime();
         SseEmitter emitter = new SseEmitter(properties.timeout().plusSeconds(10).toMillis());
         AtomicLong eventId = new AtomicLong();
         send(emitter, eventId, "started", Map.of("conversationId", conversationId));
@@ -42,20 +44,28 @@ public class ChatStreamService {
                 send(emitter, eventId, "completed", Map.of(
                         "conversationId", conversationId,
                         "answer", answer));
+                log.info("Chat stream completed for conversation {} in {} ms",
+                        conversationId, elapsedMillis(startedAt));
                 emitter.complete();
             } catch (ClientDisconnectedException exception) {
-                log.debug("SSE client disconnected from conversation {}", conversationId);
+                log.info("Chat stream client disconnected for conversation {} after {} ms",
+                        conversationId, elapsedMillis(startedAt));
                 emitter.complete();
             } catch (CodexException exception) {
-                log.warn("Streamed Codex request failed for conversation {}: {}",
-                        conversationId, exception.getMessage());
+                log.warn("Chat stream failed for conversation {} after {} ms: {}",
+                        conversationId, elapsedMillis(startedAt), exception.getMessage());
                 sendError(emitter, eventId, exception.getMessage());
             } catch (RuntimeException exception) {
-                log.error("Unexpected streamed Codex failure for conversation {}", conversationId, exception);
+                log.error("Chat stream failed unexpectedly for conversation {} after {} ms",
+                        conversationId, elapsedMillis(startedAt), exception);
                 sendError(emitter, eventId, "The AI stream failed unexpectedly.");
             }
         });
         return emitter;
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     private void sendError(SseEmitter emitter, AtomicLong eventId, String message) {

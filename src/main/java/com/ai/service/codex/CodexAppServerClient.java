@@ -81,9 +81,12 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
         capacity.acquire();
         Path workspace = null;
         Process process = null;
+        long startupStartedAt = System.nanoTime();
         try {
+            Files.createDirectories(properties.workspaceRoot());
             workspace = Files.createTempDirectory(properties.workspaceRoot(), "stream-");
             process = startProcess(workspace);
+            log.info("Codex App Server process started in {} ms", elapsedMillis(startupStartedAt));
 
             Process runningProcess = process;
             Path runningWorkspace = workspace;
@@ -93,7 +96,9 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
             CompletableFuture<Void> stderr = CompletableFuture.runAsync(
                     () -> drainStderr(runningProcess), ioExecutor);
 
+            long protocolStartedAt = System.nanoTime();
             T result = protocol.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            log.info("Codex App Server protocol completed in {} ms", elapsedMillis(protocolStartedAt));
             terminate(process);
             await(stderr);
             return result;
@@ -135,6 +140,8 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
             Consumer<String> onThreadCreated,
             Consumer<String> onDelta) {
         StringBuilder answer = new StringBuilder();
+        long protocolStartedAt = System.nanoTime();
+        boolean firstDelta = true;
         try (BufferedWriter writer = new BufferedWriter(
                      new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
              BoundedLineReader reader = new BoundedLineReader(
@@ -184,6 +191,10 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
                     String delta = message.path("params").path("delta").stringValue("");
                     if (!delta.isEmpty()) {
                         answer.append(delta);
+                        if (firstDelta) {
+                            firstDelta = false;
+                            log.info("Codex first response delta arrived in {} ms", elapsedMillis(protocolStartedAt));
+                        }
                         onDelta.accept(delta);
                     }
                 } else if ("turn/completed".equals(method)) {
@@ -200,6 +211,10 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
         } catch (IOException exception) {
             throw new CodexException("Could not communicate with the Codex App Server.", exception);
         }
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     private CodexImageResult runImageProtocol(
