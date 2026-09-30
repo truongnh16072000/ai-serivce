@@ -6,19 +6,11 @@ import org.springframework.stereotype.Component;
 @Component
 class CodexCapacity {
 
-    private final Semaphore permits;
+    final Semaphore chat;
+    final Semaphore image;
 
     CodexCapacity(CodexProperties properties) {
-        permits = new Semaphore(properties.maxConcurrentRequests(), true);
-    }
-
-    void acquire() {
-        if (!permits.tryAcquire()) {
-            throw new CodexBusyException();
-        }
-    }
-
-    void release() {
-        permits.release();
+        chat = new Semaphore(properties.maxConcurrentChatRequests(), true);
+        image = new Semaphore(properties.maxConcurrentImageRequests(), true);
     }
 }

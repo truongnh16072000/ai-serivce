@@ -83,4 +83,21 @@ class ImageGenerationControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("reference images must be PNG, JPEG, or WebP"));
     }
+    @Test
+    void backgroundsSupportPromptsAndReferences() throws Exception {
+        mockMvc.perform(post("/api/v1/images/backgrounds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"A warm studio\"}"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_PNG));
+        MockMultipartFile prompt = new MockMultipartFile("prompt", "", MediaType.TEXT_PLAIN_VALUE, "Warm studio".getBytes());
+        MockMultipartFile reference = new MockMultipartFile("images", "reference.png", MediaType.IMAGE_PNG_VALUE,
+                new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 1});
+        mockMvc.perform(multipart("/api/v1/images/backgrounds").file(prompt).file(reference))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/images/backgrounds")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"prompt\":\" \"}"))
+                .andExpect(status().isBadRequest());
+    }
+
 }

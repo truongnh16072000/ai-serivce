@@ -122,7 +122,10 @@ the service log. Queued messages are not durable across service restarts.
 | `CODEX_WORKSPACE_ROOT` | JVM temporary directory | Parent for isolated per-request workspaces |
 | `CODEX_GENERATED_IMAGES_ROOT` | `$CODEX_HOME/generated_images` | Trusted Codex image cache read and cleaned after generation |
 | `CODEX_TIMEOUT` | `2m` | Per-request process timeout |
-| `CODEX_MAX_CONCURRENT_REQUESTS` | `4` | Maximum active Codex processes |
+| `CODEX_CHAT_MODEL` | `gpt-6-luna` | Explicit model for new and resumed chat turns |
+| `CODEX_CHAT_EFFORT` | `low` | Chat reasoning effort; must be supported by the selected model |
+| `CODEX_MAX_CONCURRENT_CHAT_REQUESTS` | `24` | Maximum active chat processes (JSON and SSE combined) |
+| `CODEX_MAX_CONCURRENT_IMAGE_REQUESTS` | `5` | Maximum active image processes (all image endpoints combined) |
 | `CODEX_MAX_OUTPUT_BYTES` | `1048576` | Maximum JSONL stdout bytes per process |
 | `CODEX_MAX_IMAGE_OUTPUT_BYTES` | `26214400` | Maximum JSONL stdout bytes for an image-generation process |
 | `IMAGE_MAX_REFERENCE_FILE_SIZE` | `10MB` | Multipart limit for one reference image |
@@ -136,6 +139,16 @@ the service log. Queued messages are not durable across service restarts.
 | `TELEGRAM_TIMEOUT` | `10s` | Telegram connect and response timeout |
 | `TELEGRAM_ASYNC_THREADS` | `1` | Background Telegram sender thread; messages are spaced one second apart |
 | `TELEGRAM_QUEUE_CAPACITY` | `100` | Maximum messages waiting for background delivery |
+
+Chat and image generation have independent concurrency limits: image requests cannot consume
+chat slots, and vice versa. The defaults allow at most 29 processes in total (24 chat, five
+image); unused slots are not borrowed. Replace the old `CODEX_MAX_CONCURRENT_REQUESTS` setting
+with the two limits above. Excess requests still fail immediately with a capacity error.
+
+Chat model and effort overrides apply to every turn, including resumed conversations. Image
+requests retain their existing model configuration. Verify the selected chat model and effort
+with `model/list` on the deployed Codex account before release; local availability does not prove
+production availability. Docker Compose overrides can be placed in `.env` or the deployment shell.
 
 Prompts are encoded as App Server JSON-RPC messages and never interpolated into a shell command.
 Codex runs in an empty temporary workspace with the read-only sandbox. Application conversation
@@ -176,3 +189,12 @@ Then deploy from a trusted checkout with:
 The script builds before stopping the legacy systemd service and restores it
 automatically if the replacement container cannot answer a local request.
 Docker health checks `/actuator/health`, including the database connection.
+
+### Cutout Studio backgrounds
+
+`POST /api/v1/images/backgrounds` accepts the same JSON `prompt` or multipart
+`prompt`/`images` as `/api/v1/images/generations`, with user prompts up to 9500
+characters. It requests an empty compositing background, using selected references
+only for scenery, palette and lighting. The foreground cutout remains on the device.
+The existing app access and rate limiting apply unchanged. The response is a
+no-store image download; cancellation of the client does not cancel a server job.

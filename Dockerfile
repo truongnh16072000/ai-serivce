@@ -10,7 +10,7 @@ RUN ./gradlew --no-daemon bootJar
 # Keep the Codex CLI inside the image.  Pinning it means that a host update
 # cannot silently change the executable used by a running API.
 FROM node:22-bookworm-slim AS codex
-ARG CODEX_VERSION=0.147.0
+ARG CODEX_VERSION=0.159.2
 RUN npm install --global --omit=dev "@openai/codex@${CODEX_VERSION}"
 
 # Node supplies the Codex runtime; copy a pinned Java 21 runtime into it.

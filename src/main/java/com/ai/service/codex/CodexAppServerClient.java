@@ -20,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
@@ -62,7 +63,7 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
             Optional<String> existingThreadId,
             Consumer<String> onThreadCreated,
             Consumer<String> onDelta) {
-        return execute((process, workspace) -> runProtocol(
+        return execute(capacity.chat, (process, workspace) -> runProtocol(
                 process, workspace, prompt, existingThreadId, onThreadCreated, onDelta));
     }
 
@@ -74,11 +75,13 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
     @Override
     public CodexImageResult generate(String prompt, List<CodexReferenceImage> referenceImages) {
         List<CodexReferenceImage> references = List.copyOf(referenceImages);
-        return execute((process, workspace) -> runImageProtocol(process, workspace, prompt, references));
+        return execute(capacity.image, (process, workspace) -> runImageProtocol(process, workspace, prompt, references));
     }
 
-    private <T> T execute(Protocol<T> protocolRunner) {
-        capacity.acquire();
+    private <T> T execute(Semaphore permits, Protocol<T> protocolRunner) {
+        if (!permits.tryAcquire()) {
+            throw new CodexBusyException();
+        }
         Path workspace = null;
         Process process = null;
         long startupStartedAt = System.nanoTime();
@@ -122,7 +125,7 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
         } finally {
             terminate(process);
             deleteWorkspace(workspace);
-            capacity.release();
+            permits.release();
         }
     }
 
@@ -181,6 +184,8 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
                     "id", 2,
                     "params", Map.of(
                             "threadId", threadId,
+                            "model", properties.chatModel(),
+                            "effort", properties.chatEffort(),
                             "input", List.of(Map.of("type", "text", "text", prompt)))));
 
             while (true) {

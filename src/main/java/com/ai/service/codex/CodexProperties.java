@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import java.nio.file.Path;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -17,7 +18,10 @@ public record CodexProperties(
         @NotNull Path workspaceRoot,
         @NotNull Path generatedImagesRoot,
         @NotNull Duration timeout,
-        @Min(1) @Max(100) int maxConcurrentRequests,
+        @NotBlank String chatModel,
+        @NotBlank @Pattern(regexp = "low|medium|high|xhigh|max|ultra") String chatEffort,
+        @Min(1) @Max(100) int maxConcurrentChatRequests,
+        @Min(1) @Max(100) int maxConcurrentImageRequests,
         @Min(1_024) @Max(100_000_000) int maxOutputBytes,
         @Min(1_024) @Max(100_000_000) int maxImageOutputBytes
 ) {

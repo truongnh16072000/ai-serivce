@@ -40,7 +40,7 @@ class ChatStreamControllerTests {
         }).when(conversationService).stream(anyString(), anyString(), any());
         CodexProperties properties = new CodexProperties(
                 "codex", Path.of("/tmp"), Path.of("/tmp/codex-images"),
-                Duration.ofSeconds(5), 2, 100_000, 1_000_000);
+                Duration.ofSeconds(5), "test-chat-model", "low", 2, 1, 100_000, 1_000_000);
         streamService = new ChatStreamService(conversationService, properties);
         mockMvc = MockMvcBuilders.standaloneSetup(new ChatStreamController(streamService))
                 .setControllerAdvice(new ApiExceptionHandler())

@@ -65,6 +65,32 @@ public class ImageGenerationController {
         return download(imageGenerator.generate(prompt, references));
     }
 
+    @PostMapping(path = "/backgrounds", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<byte[]> generateBackground(@Valid @RequestBody GenerateImageRequest request) {
+        return generate(new GenerateImageRequest(backgroundPrompt(request.prompt())));
+    }
+
+    @PostMapping(path = "/backgrounds", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<byte[]> generateBackgroundWithReference(
+            @RequestPart("prompt") String prompt,
+            @RequestPart("images") List<MultipartFile> images) {
+        // Validate the user's prompt before adding server-owned instructions.
+        if (prompt == null || prompt.isBlank() || prompt.length() > 9500) {
+            throw new ImageRequestException("prompt must contain 1 to 9500 characters");
+        }
+        return generateWithReferences(backgroundPrompt(prompt), images);
+    }
+
+    private String backgroundPrompt(String prompt) {
+        if (prompt.length() > 9500) {
+            throw new ImageRequestException("prompt must contain 1 to 9500 characters");
+        }
+        return "Create only a photographic BACKGROUND for compositing a separate foreground subject. "
+                + "Leave the central foreground empty, with no people, products, lettering or watermark. "
+                + "Use any reference only for scenery, palette and lighting; do not copy its foreground subject. "
+                + "Requested scene: " + prompt;
+    }
+
     private ResponseEntity<byte[]> download(CodexImageResult result) {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(result.mediaType()))
