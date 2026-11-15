@@ -36,18 +36,18 @@ public class TelegramMessageDispatcher {
                 new ThreadPoolExecutor.AbortPolicy());
     }
 
-    public void dispatch(String chatId, String text, String parseMode) {
+    public void dispatch(String chatId, String text, String parseMode, boolean disableLinkPreview) {
         telegramClient.validateDestination(chatId);
         try {
-            executor.execute(() -> send(chatId, text, parseMode));
+            executor.execute(() -> send(chatId, text, parseMode, disableLinkPreview));
         } catch (RejectedExecutionException exception) {
             throw new TelegramQueueFullException();
         }
     }
 
-    private void send(String chatId, String text, String parseMode) {
+    private void send(String chatId, String text, String parseMode, boolean disableLinkPreview) {
         try {
-            TelegramSendResponse response = telegramClient.send(chatId, text, parseMode);
+            TelegramSendResponse response = telegramClient.send(chatId, text, parseMode, disableLinkPreview);
             log.debug("Telegram message {} delivered to chat {}", response.messageId(), response.chatId());
         } catch (TelegramException exception) {
             // Do not log the cause: HTTP client exception messages can contain the bot-token URL.

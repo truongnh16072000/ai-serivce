@@ -50,6 +50,20 @@ class ChatControllerTests {
     }
 
     @Test
+    void acceptsTenMillionCharactersAndRejectsAnythingLonger() throws Exception {
+        String message = "x".repeat(10_000_000);
+        mockMvc.perform(post("/api/v1/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"" + message + "\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"" + message + "x\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.message").value("message must be at most 10000000 characters"));
+    }
+
+    @Test
     void rejectsBlankMessages() throws Exception {
         mockMvc.perform(post("/api/v1/chat")
                         .contentType(MediaType.APPLICATION_JSON)

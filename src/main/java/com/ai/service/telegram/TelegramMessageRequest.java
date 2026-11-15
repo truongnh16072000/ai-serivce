@@ -17,6 +17,7 @@ public record TelegramMessageRequest(
         @Pattern(
                 regexp = "^$|^(HTML|Markdown|MarkdownV2)$",
                 message = "parseMode must be HTML, Markdown, or MarkdownV2")
-        String parseMode
+        String parseMode,
+        Boolean disableLinkPreview
 ) {
 }

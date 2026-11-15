@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync host Codex auth and warn before the service access token expires
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+StateDirectory=ai-service-codex-monitor
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /usr/local/bin/ai-service-check-codex-session
+TimeoutStartSec=45

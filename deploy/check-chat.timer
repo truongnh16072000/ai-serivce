@@ -1,0 +1,10 @@
+[Unit]
+Description=Check AI chat API every three hours (Vietnam time)
+
+[Timer]
+OnCalendar=*-*-* 00/3:00:00 Asia/Ho_Chi_Minh
+Persistent=true
+Unit=ai-service-check-chat.service
+
+[Install]
+WantedBy=timers.target

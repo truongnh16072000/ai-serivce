@@ -25,12 +25,12 @@ class TelegramMessageDispatcherTests {
                     return new TelegramSendResponse(1, 1);
                 })
                 .when(client)
-                .send(any(), any(), any());
+                .send(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         TelegramMessageDispatcher dispatcher = new TelegramMessageDispatcher(
                 client, new TelegramProperties("token", "chat", Duration.ofSeconds(10), 1, 2));
 
-        dispatcher.dispatch("chat", "first", null);
-        dispatcher.dispatch("chat", "second", null);
+        dispatcher.dispatch("chat", "first", null, false);
+        dispatcher.dispatch("chat", "second", null, false);
 
         assertThat(sent.await(3, TimeUnit.SECONDS)).isTrue();
         assertThat(sentAt.get(1) - sentAt.get(0)).isGreaterThanOrEqualTo(TimeUnit.SECONDS.toNanos(1));

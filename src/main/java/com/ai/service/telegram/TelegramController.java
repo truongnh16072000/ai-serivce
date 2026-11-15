@@ -22,7 +22,8 @@ public class TelegramController {
             path = "/messages",
             consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Void> sendMessage(@Valid @RequestBody TelegramMessageRequest request) {
-        dispatcher.dispatch(request.chatId(), request.text(), request.parseMode());
+        dispatcher.dispatch(request.chatId(), request.text(), request.parseMode(),
+                Boolean.TRUE.equals(request.disableLinkPreview()));
         return ResponseEntity.accepted().build();
     }
 }

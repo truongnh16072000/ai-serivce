@@ -12,7 +12,7 @@ public record AskRequest(
         String conversationId,
 
         @NotBlank(message = "message is required")
-        @Size(max = 10_000, message = "message must be at most 10000 characters")
+        @Size(max = 10_000_000, message = "message must be at most 10000000 characters")
         String message
 ) {
 }

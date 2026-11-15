@@ -31,7 +31,7 @@ public class TelegramClient {
         this.restClient = restClient;
     }
 
-    public TelegramSendResponse send(String chatId, String text, String parseMode) {
+    public TelegramSendResponse send(String chatId, String text, String parseMode, boolean disableLinkPreview) {
         String targetChatId = resolveChatId(chatId);
         validateBotToken();
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -39,6 +39,9 @@ public class TelegramClient {
         payload.put("text", text);
         if (parseMode != null && !parseMode.isBlank()) {
             payload.put("parse_mode", parseMode);
+        }
+        if (disableLinkPreview) {
+            payload.put("link_preview_options", Map.of("is_disabled", true));
         }
         try {
             String body = restClient.post()

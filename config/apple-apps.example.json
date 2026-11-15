@@ -1,0 +1,16 @@
+{
+  "enabled": false,
+  "apps": [
+    {
+      "appKey": "replace-with-app-key",
+      "displayName": "Replace with app name",
+      "bundleId": "com.example.replace",
+      "appAppleId": null,
+      "serverApi": {
+        "issuerId": "",
+        "keyId": "",
+        "privateKeyPath": "/run/secrets/apple/SubscriptionKey_REPLACE.p8"
+      }
+    }
+  ]
+}

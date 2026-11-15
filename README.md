@@ -74,11 +74,14 @@ curl --fail-with-body \
   --request POST http://localhost:8080/api/v1/images/generations \
   --header 'Content-Type: application/json' \
   --data '{"prompt":"A lighthouse during a storm, cinematic editorial illustration."}' \
-  --output codex-image.png
+  --output codex-image.jpg
 ```
 
-The response is the generated image as a binary download with an attachment filename such as
-`codex-image.png`. It includes `Cache-Control: no-store`; no temporary image path is exposed.
+Generated PNG images are returned as `image/jpeg` with filename `codex-image.jpg`, using JPEG
+quality 85% without resizing. Transparent pixels are composited onto white. This reduces download
+size with lossy compression; it does not reduce image-generation time. Existing JPEG and WebP
+outputs are passed through. Both `/generations` and `/backgrounds`, with or without references,
+use this behavior. Responses include `Cache-Control: no-store`; no temporary image path is exposed.
 
 To guide generation with one to five PNG, JPEG, or WebP reference images, send multipart data:
 
@@ -88,7 +91,7 @@ curl --fail-with-body \
   --form 'prompt=Keep the composition but use a warm editorial illustration style.' \
   --form 'images=@reference-1.png' \
   --form 'images=@reference-2.jpg' \
-  --output codex-image.png
+  --output codex-image.jpg
 ```
 
 Each reference may be at most 10 MB. References are copied into the isolated Codex workspace and
@@ -97,6 +100,40 @@ deleted as soon as generation finishes.
 Image generation runs in a fresh ephemeral Codex thread and counts against the Codex account's
 image-generation usage limits. The image is copied into the response before the temporary Codex
 workspace is deleted, including when Codex supplies a temporary saved path.
+
+### Image editing
+
+All three endpoints accept `multipart/form-data` and require `X-APP-CODE`. Upload the source as
+`image` (PNG, JPEG or WebP, at most 10 MB). They use the existing Codex image pipeline and share
+the five image slots, rate limiting, timeout and temporary-file cleanup.
+
+| POST endpoint | Additional fields | Output |
+|---|---|---|
+| `/api/v1/images/remove-background` | None | PNG with transparent pixels; never converted to JPEG |
+| `/api/v1/images/replace-background` | Required `prompt`; optional `background` image (at most 10 MB) | PNG results converted to JPEG quality 85%; existing JPEG/WebP passed through |
+| `/api/v1/images/remove-object` | Required `prompt` describing objects and their locations | PNG results converted to JPEG quality 85%; existing JPEG/WebP passed through |
+
+Prompts must contain 1 to 9500 characters. Editing is generative: preservation of subject details
+and exact dimensions is requested but not guaranteed. Object selection uses text descriptions;
+these endpoints do not accept pixel masks. Background removal returns `502` if Codex produces an
+unreadable, non-PNG or entirely opaque result, rather than pretending background removal succeeded.
+
+```bash
+curl --fail-with-body "$API_BASE/api/v1/images/remove-background" \
+  -H "X-APP-CODE: $APP_CODE" -F 'image=@source.jpg' -o cutout.png
+
+curl --fail-with-body "$API_BASE/api/v1/images/replace-background" \
+  -H "X-APP-CODE: $APP_CODE" -F 'image=@source.jpg' \
+  -F 'prompt=A tropical beach at sunset' -o replaced.jpg
+# Add -F 'background=@beach.jpg' to use a background reference.
+
+curl --fail-with-body "$API_BASE/api/v1/images/remove-object" \
+  -H "X-APP-CODE: $APP_CODE" -F 'image=@source.jpg' \
+  -F 'prompt=Remove the yellow ball on the right' -o cleaned.jpg
+```
+
+Responses contain a binary attachment with `Cache-Control: no-store`. Reuse the authentication
+and error handling of the existing image endpoints; no polling or new dependency is required.
 
 ### Telegram messages
 
@@ -111,7 +148,9 @@ curl --fail-with-body \
 
 The endpoint returns `202 Accepted` as soon as the message enters the in-memory delivery queue.
 Set `TELEGRAM_DEFAULT_CHAT_ID`, or include `chatId` in the request. Optional `parseMode` values are
-`HTML`, `Markdown`, and `MarkdownV2`. Delivery errors occur after the response and are written to
+`HTML`, `Markdown`, and `MarkdownV2`. Set optional `disableLinkPreview: true` to prevent a website
+preview card from appearing below the message; omitted or `false` preserves normal behavior.
+Delivery errors occur after the response and are written to
 the service log. Queued messages are not durable across service restarts.
 
 ## Configuration

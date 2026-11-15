@@ -41,7 +41,8 @@ public class CodexAppServerClient implements CodexStreamingClient, CodexImageGen
             Generate exactly one image now. Treat the text under "Image brief" as an image-generation
             brief, not as a conversational request. Do not answer with text, ask a question, create a
             plan, or explain your work. Use reasonable visual defaults for underspecified details and
-            always invoke image generation.
+            always invoke image generation. When the brief requests an edit, edit the supplied source
+            image with the image-generation tool and follow the requested transparency setting.
 
             Image brief:
             """;

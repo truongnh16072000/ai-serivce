@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync Codex auth and check expiry hourly for 3, 2 and 1 day warnings
+
+[Timer]
+OnCalendar=*-*-* *:10:00 Asia/Ho_Chi_Minh
+Persistent=true
+Unit=ai-service-check-codex-session.service
+
+[Install]
+WantedBy=timers.target

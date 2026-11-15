@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -38,13 +39,26 @@ class TelegramClientTests {
     void sendsTheMessageToTheConfiguredChat() {
         server.expect(requestTo(SEND_URL))
                 .andExpect(method(HttpMethod.POST))
+                .andExpect(jsonPath("$.link_preview_options").doesNotExist())
                 .andExpect(content().json("{\"chat_id\":\"default_chat\",\"text\":\"Hello\"}"))
                 .andRespond(withSuccess(successResponse(42, 123), MediaType.APPLICATION_JSON));
 
-        TelegramSendResponse response = client.send(null, "Hello", null);
+        TelegramSendResponse response = client.send(null, "Hello", null, false);
 
         assertThat(response.messageId()).isEqualTo(42);
         assertThat(response.chatId()).isEqualTo(123);
+        server.verify();
+    }
+
+    @Test
+    void disablesLinkPreviewsOnlyWhenRequested() {
+        server.expect(requestTo(SEND_URL))
+                .andExpect(content().json("""
+                        {"chat_id":"default_chat","text":"App link","parse_mode":"HTML",
+                         "link_preview_options":{"is_disabled":true}}
+                        """))
+                .andRespond(withSuccess(successResponse(43, 123), MediaType.APPLICATION_JSON));
+        client.send(null, "App link", "HTML", true);
         server.verify();
     }
 
@@ -56,7 +70,7 @@ class TelegramClientTests {
                         "{\"chat_id\":\"-1001234567890\",\"text\":\"<b>Hi</b>\",\"parse_mode\":\"HTML\"}"))
                 .andRespond(withSuccess(successResponse(7, -1001234567890L), MediaType.APPLICATION_JSON));
 
-        TelegramSendResponse response = client.send("-1001234567890", "<b>Hi</b>", "HTML");
+        TelegramSendResponse response = client.send("-1001234567890", "<b>Hi</b>", "HTML", false);
 
         assertThat(response.messageId()).isEqualTo(7);
         assertThat(response.chatId()).isEqualTo(-1001234567890L);
@@ -70,7 +84,7 @@ class TelegramClientTests {
                         "{\"ok\":false,\"error_code\":400,\"description\":\"Bad Request: chat not found\"}",
                         MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> client.send("999", "Hello", null))
+        assertThatThrownBy(() -> client.send("999", "Hello", null, false))
                 .isInstanceOfSatisfying(TelegramException.class, exception -> {
                     assertThat(exception.getMessage()).isEqualTo("Bad Request: chat not found");
                     assertThat(exception.getStatusCode()).isEqualTo(400);
@@ -83,7 +97,7 @@ class TelegramClientTests {
                 .andRespond(withStatus(HttpStatus.UNAUTHORIZED).body(
                         "{\"ok\":false,\"error_code\":401,\"description\":\"Unauthorized\"}"));
 
-        assertThatThrownBy(() -> client.send("999", "Hello", null))
+        assertThatThrownBy(() -> client.send("999", "Hello", null, false))
                 .isInstanceOfSatisfying(TelegramException.class, exception -> {
                     assertThat(exception.getMessage()).isEqualTo("Unauthorized");
                     assertThat(exception.getStatusCode()).isEqualTo(401);
@@ -98,7 +112,7 @@ class TelegramClientTests {
         server = MockRestServiceServer.bindTo(builder).build();
         client = new TelegramClient(properties, new ObjectMapper(), builder.build());
 
-        assertThatThrownBy(() -> client.send(null, "Hello", null))
+        assertThatThrownBy(() -> client.send(null, "Hello", null, false))
                 .isInstanceOfSatisfying(TelegramException.class, exception ->
                         assertThat(exception.getMessage())
                                 .isEqualTo("No Telegram chat id is configured and chatId was not provided."));

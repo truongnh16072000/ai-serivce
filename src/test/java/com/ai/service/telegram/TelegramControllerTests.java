@@ -35,7 +35,15 @@ class TelegramControllerTests {
                         .content("{\"text\":\"Hello\"}"))
                 .andExpect(status().isAccepted());
 
-        verify(dispatcher).dispatch(null, "Hello", null);
+        verify(dispatcher).dispatch(null, "Hello", null, false);
+    }
+
+    @Test
+    void forwardsOptionalLinkPreviewSetting() throws Exception {
+        mockMvc.perform(post("/api/v1/telegram/messages").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"text\":\"App link\",\"parseMode\":\"HTML\",\"disableLinkPreview\":true}"))
+                .andExpect(status().isAccepted());
+        verify(dispatcher).dispatch(null, "App link", "HTML", true);
     }
 
     @Test
@@ -45,7 +53,7 @@ class TelegramControllerTests {
                         .content("{\"chatId\":\"123\",\"text\":\"Hi\",\"parseMode\":\"HTML\"}"))
                 .andExpect(status().isAccepted());
 
-        verify(dispatcher).dispatch("123", "Hi", "HTML");
+        verify(dispatcher).dispatch("123", "Hi", "HTML", false);
     }
 
     @Test
@@ -78,7 +86,7 @@ class TelegramControllerTests {
     @Test
     void mapsTelegramClientErrorsToBadRequest() throws Exception {
         doThrow(new TelegramException("The Telegram bot token is not configured."))
-                .when(dispatcher).dispatch("123", "Hi", null);
+                .when(dispatcher).dispatch("123", "Hi", null, false);
 
         mockMvc.perform(post("/api/v1/telegram/messages")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -89,7 +97,7 @@ class TelegramControllerTests {
 
     @Test
     void mapsAFullDeliveryQueueToServiceUnavailable() throws Exception {
-        doThrow(new TelegramQueueFullException()).when(dispatcher).dispatch("123", "Hi", null);
+        doThrow(new TelegramQueueFullException()).when(dispatcher).dispatch("123", "Hi", null, false);
 
         mockMvc.perform(post("/api/v1/telegram/messages")
                         .contentType(MediaType.APPLICATION_JSON)

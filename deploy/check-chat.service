@@ -1,0 +1,10 @@
+[Unit]
+Description=Check public AI chat API and alert through Telegram on failure
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ai-service
+ExecStart=/usr/bin/python3 /usr/local/bin/ai-service-check-chat
+TimeoutStartSec=180
